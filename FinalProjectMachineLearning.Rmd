@@ -1,0 +1,149 @@
+---
+title: "Practical Machine Learning Final Project"
+date: 2016, 25 November 
+output: html_document
+---
+#Introduction 
+The introduction of technologies of the Internet of Things has made possible the collection of a huge amount of data related to personal activities in an inexpensive way. People regularly quantify how much of an activity they are doing, but they don't pay as much attention to the quality of the exercise. The given data set consist of data from the sensors in the forearm, arm, belt and dumbbell collected from 6 participants who has been asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal is being able to predict, given a new reading of the sensors, if the actual exercise has been performed correctly, as indicated in the "classe" variable of  the data set. Finally to check accuracy of the prediction algorithm,  it will be applied to a testing set. 
+
+##Data
+Both the training data nad the test data are available in the from   http://groupware.les.inf.puc-rio.br/har in the following url:
+
+1.Training set: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+2.Testing set: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+#Getting, Loading and cleaning the data
+Loading the required libraries for the analysis:
+```{r echo=TRUE,comment="",message=FALSE}
+library(rpart.plot)
+library(caret)
+library(rpart)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(knitr)
+```
+
+The data should be loaded and cleaned. As a fist step we load the data into two datasets, training and testing. We remove the colums with missing values and remove the columns from 1 to 7 as they have no predicting value:
+```{r, echo=TRUE, comment="", message=FALSE}
+##Reading the data and deleting the columns with no valid
+trainingDataSet <- read.csv(url("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"), na.strings=c("NA","#DIV/0!",""))
+testingDataSet <- read.csv(url("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"), na.strings=c("NA","#DIV/0!",""))
+
+##Removing NA values
+trainingDataSet <- trainingDataSet[, colSums(is.na(trainingDataSet)) == 0]
+testingDataSet  <- testingDataSet[, colSums(is.na(testingDataSet)) == 0]
+
+##Removing columns from 1 to 7 
+trainingDataSet <- trainingDataSet[, -c(1:7)]
+testingDataSet <- testingDataSet[, -c(1:7)]
+```
+Double check if there are near zero variance variables to remove them from the dataset. All the remaining variables are not near zero variables as shown adding up the nz boolean column of the nearZeroVar data resulting of the analysis.
+```{r, echo=TRUE, comment=FALSE, message=""}
+nzvalues <- nearZeroVar(trainingDataSet, saveMetrics=TRUE)
+#The colum nz that shows if a varible is "near zero" are all FALSE
+sum(nzvalues$nzv)
+```
+
+Once loaded and cleaning the data. It's required to partition the training set into a dataset to train the model and another partition to make the validations. The training data set covers 70% of the original training set, while the other 30% belongs to the validation set. The final test will be done in the testing dataset (testingDataSet)
+```{r, echo=TRUE,comment="",message=FALSE}
+trainingList <- createDataPartition(trainingDataSet$classe, p = 0.7, list = FALSE)
+trainingModelDataSet  <- trainingDataSet[trainingList, ]
+validationModelDataSet <- trainingDataSet[-trainingList, ]
+```
+
+#Predictions models
+## Predictions with decision trees
+We use cross-validation with k-fold with K=5 to save some computing time. Although we consider minor effects, we experiment with preprocessing the data:
+```{r, echo=TRUE,eval=TRUE,comment="",message=FALSE}
+fitmodelDecTrees <- train(classe ~ ., data = trainingModelDataSet, method = "rpart", 
+                   preProcess=c("center", "scale"),trControl = trainControl(method ="cv", number = 5))
+#Show a picture of the model
+print(fitmodelDecTrees)
+```
+
+A representation of the decision tree:
+```{r, echo=TRUE }
+fancyRpartPlot(fitmodelDecTrees$finalModel)
+```
+
+Calculate the confusion matrix and the accuracy of the adjusted model:
+```{r, echo=TRUE, eval=TRUE,comment="",message=FALSE}
+prWithDecsTrees<- predict(fitmodelDecTrees, validationModelDataSet)
+cmatrixDecstree <- confusionMatrix(prWithDecsTrees,validationModelDataSet$classe)
+print(cmatrixDecstree)
+```
+
+The accuracy:
+```{r,echo=TRUE}
+#Accuracy 
+cmatrixDecstree$overall[1]
+```
+The accuracy is very low, It does not achieve even the 50% chance. As a conclusion we try with different approaches to compare and search for better results. 
+
+## Predictions with random forest
+We fit other model using random forest:
+```{r, echo=TRUE, eval=TRUE,comment=""}
+fitmodelRandomforest <- train(classe ~ ., data = trainingModelDataSet, method = "rf", 
+                   preProcess=c("center", "scale"),trControl = trainControl(method ="cv", number =5))
+
+#printing the model
+print(fitmodelRandomforest, digits = 4)
+```
+
+Plotting 
+```{r, echo=TRUE, comment=""}
+#Ploting the model
+plot(fitmodelRandomforest)
+```
+
+Use the model to calculate the confusion matrix using the validation dataset:
+```{r, echo=TRUE, eval=TRUE,comment=""}
+prWithRandomForest<- predict(fitmodelRandomforest, validationModelDataSet)
+cmatrixRandomForest <- confusionMatrix(prWithRandomForest, validationModelDataSet$classe)
+print(cmatrixRandomForest)
+```
+
+The accuracy:
+```{r, echo=TRUE, eval=TRUE,comment=""}
+#Accuracy 
+cmatrixRandomForest$overall[1]
+```
+the accuracy is 0.991. Much better than the previous result, although the solution may be difficult to interpret.An estimation of the out of sample error is 1-0.9938828=0,00611.
+
+##Prediction with Generalized Boosted Regresion
+Finally we fit another model using gbm:
+```{r, echo=FALSE, eval=TRUE,comment="",message=FALSE,warning=FALSE,error=FALSE,results='hide' }
+fitmodelGbm <- train(classe ~ ., data = trainingModelDataSet, method = "gbm", 
+                   preProcess=c("center", "scale"),trControl = trainControl(method ="cv", number = 5))
+
+# printing the model
+print(fitmodelGbm)
+```
+
+Drawing the model:
+```{r, echo=TRUE, eval=TRUE,comment="",message=FALSE}
+#Plot of the model
+plot(fitmodelGbm)
+```
+
+Use the validation dataset to calculate the accuracy of the model:
+```{r, echo=TRUE, eval=TRUE,comment="",message=FALSE}
+prWithGbm <- predict(fitmodelGbm,validationModelDataSet)
+cmatrixGbm <- confusionMatrix(prWithGbm, validationModelDataSet$classe)
+print(cmatrixGbm)
+```
+
+Accuracy:
+```{r, echo=TRUE, eval=TRUE,comment="",message=FALSE}
+#Accuracy 
+cmatrixGbm$overall[1]
+```
+The accuracy is less than the one of the random forest. An estimation of the out of sample error is 1-0.9624469=0,03755.Much better than with decision trees but less accurate than the random forest approach. 
+
+#Predicting Results on the test data
+Due to its best results we use random forest to predict the predicting results in the test data
+```{r, echo=TRUE, eval=TRUE,comment="",message=FALSE}
+predict(fitmodelRandomforest, testingDataSet)
+```
